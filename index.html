@@ -327,6 +327,7 @@
   <div id="list"><div class="loading">Chargement…</div></div>
 
   <button class="footer-link" id="resetBtn">Réinitialiser toute ma collection</button>
+  <div class="tmdb-note" id="syncStatus" style="text-align:center;margin-top:8px;"></div>
 </div>
 
 <div id="modalRoot"></div>
@@ -349,6 +350,89 @@
   let filterStatus = 'all';
   let editingId = null;
 
+  const GH_KEYS = {token:'gh_token', repo:'gh_repo', path:'gh_path', sha:'gh_sha'};
+  let gh = {token:'', repo:'', path:'data/entries.json', sha:null};
+
+  function loadGhConfig(){
+    gh.token = localStorage.getItem(GH_KEYS.token) || '';
+    gh.repo = localStorage.getItem(GH_KEYS.repo) || '';
+    gh.path = localStorage.getItem(GH_KEYS.path) || 'data/entries.json';
+    gh.sha = localStorage.getItem(GH_KEYS.sha) || null;
+  }
+  function ghConfigured(){ return !!(gh.token && gh.repo && gh.path); }
+
+  function utf8ToB64(str){ return btoa(unescape(encodeURIComponent(str))); }
+  function b64ToUtf8(str){ return decodeURIComponent(escape(atob(str))); }
+
+  function setSyncStatus(text){
+    const el = document.getElementById('syncStatus');
+    if(el) el.textContent = text;
+  }
+
+  async function pullFromGitHub(){
+    if(!ghConfigured()) return false;
+    try{
+      setSyncStatus('Synchronisation avec GitHub…');
+      const url = `https://api.github.com/repos/${gh.repo}/contents/${gh.path.split('/').map(encodeURIComponent).join('/')}`;
+      const res = await fetch(url, {headers:{Authorization:`Bearer ${gh.token}`, Accept:'application/vnd.github+json'}});
+      if(res.status===404){
+        gh.sha = null;
+        setSyncStatus('Aucune sauvegarde GitHub existante — la prochaine modif en créera une.');
+        return false;
+      }
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const data = await res.json();
+      gh.sha = data.sha;
+      localStorage.setItem(GH_KEYS.sha, gh.sha);
+      const content = b64ToUtf8(data.content.replace(/\n/g,''));
+      const remote = JSON.parse(content);
+      entries = remote;
+      localStorage.setItem(STORAGE_KEY, content);
+      setSyncStatus('✓ Synchronisé avec GitHub');
+      return true;
+    }catch(e){
+      console.error('GitHub pull error', e);
+      setSyncStatus('⚠ Impossible de récupérer depuis GitHub (vérifie tes réglages)');
+      return false;
+    }
+  }
+
+  async function pushToGitHub(){
+    if(!ghConfigured()) return false;
+    try{
+      setSyncStatus('Sauvegarde sur GitHub…');
+      const url = `https://api.github.com/repos/${gh.repo}/contents/${gh.path.split('/').map(encodeURIComponent).join('/')}`;
+      const body = {
+        message: 'Mise à jour Ciné-Journal',
+        content: utf8ToB64(JSON.stringify(entries, null, 2))
+      };
+      if(gh.sha) body.sha = gh.sha;
+      const res = await fetch(url, {
+        method:'PUT',
+        headers:{Authorization:`Bearer ${gh.token}`, Accept:'application/vnd.github+json', 'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      });
+      if(!res.ok){
+        const errData = await res.json().catch(()=>({}));
+        if(res.status===409){
+          setSyncStatus('⚠ Conflit détecté, nouvelle tentative…');
+          const pulled = await pullFromGitHub();
+          if(pulled) return await pushToGitHub();
+        }
+        throw new Error(errData.message || ('HTTP '+res.status));
+      }
+      const data = await res.json();
+      gh.sha = data.content.sha;
+      localStorage.setItem(GH_KEYS.sha, gh.sha);
+      setSyncStatus('✓ Sauvegardé sur GitHub');
+      return true;
+    }catch(e){
+      console.error('GitHub push error', e);
+      setSyncStatus('⚠ Échec de la sauvegarde GitHub (vérifie ton token et le nom du dépôt)');
+      return false;
+    }
+  }
+
   const listEl = document.getElementById('list');
   const modalRoot = document.getElementById('modalRoot');
 
@@ -364,20 +448,34 @@
     }catch(e){
       tmdbApiKey = '';
     }
+    loadGhConfig();
     render();
+    if(ghConfigured()){
+      const ok = await pullFromGitHub();
+      if(ok) render();
+    }
   }
 
   function openSettings(){
     modalRoot.innerHTML = `
       <div class="overlay" id="overlay">
         <div class="sheet">
-          <h2>Réglages TMDB</h2>
+          <h2>Réglages</h2>
           <div class="field">
             <label>Clé API TMDB (v3)</label>
             <input type="text" id="s_key" value="${escapeHtml(tmdbApiKey)}" placeholder="Colle ta clé ici" />
           </div>
           <div class="tmdb-note">
             Gratuite : crée un compte sur themoviedb.org, puis va dans Paramètres → API pour générer une clé "API Key (v3 auth)". Elle est stockée uniquement sur cet appareil.
+          </div>
+          <div class="field" style="margin-top:18px;">
+            <label>Sauvegarde sur GitHub (optionnel)</label>
+            <input type="text" id="s_gh_token" value="${escapeHtml(gh.token)}" placeholder="Token d'accès personnel (PAT)" style="margin-bottom:8px;" />
+            <input type="text" id="s_gh_repo" value="${escapeHtml(gh.repo)}" placeholder="Dépôt, ex : tonpseudo/cine-journal" style="margin-bottom:8px;" />
+            <input type="text" id="s_gh_path" value="${escapeHtml(gh.path)}" placeholder="Chemin du fichier (ex: data/entries.json)" />
+          </div>
+          <div class="tmdb-note">
+            Crée un token sur github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens, avec l'accès "Contents: Read and write" limité à ce dépôt uniquement. Une fois configuré, chaque ajout/modif est automatiquement sauvegardé dans ton dépôt (branche "main"). Le token est stocké uniquement sur cet appareil.
           </div>
           <div class="sheet-actions">
             <button class="btn ghost" id="s_cancel">Annuler</button>
@@ -388,10 +486,25 @@
     `;
     modalRoot.querySelector('#s_cancel').addEventListener('click', closeModal);
     modalRoot.querySelector('#overlay').addEventListener('click', (ev)=>{ if(ev.target.id==='overlay') closeModal(); });
-    modalRoot.querySelector('#s_save').addEventListener('click', ()=>{
+    modalRoot.querySelector('#s_save').addEventListener('click', async ()=>{
       tmdbApiKey = modalRoot.querySelector('#s_key').value.trim();
       try{ localStorage.setItem(API_KEY_STORAGE, tmdbApiKey); }catch(e){ console.error(e); }
+
+      gh.token = modalRoot.querySelector('#s_gh_token').value.trim();
+      gh.repo = modalRoot.querySelector('#s_gh_repo').value.trim();
+      gh.path = modalRoot.querySelector('#s_gh_path').value.trim() || 'data/entries.json';
+      localStorage.setItem(GH_KEYS.token, gh.token);
+      localStorage.setItem(GH_KEYS.repo, gh.repo);
+      localStorage.setItem(GH_KEYS.path, gh.path);
       closeModal();
+
+      if(ghConfigured()){
+        const ok = await pullFromGitHub();
+        if(!ok && ghConfigured()){
+          await pushToGitHub();
+        }
+        render();
+      }
     });
   }
   document.getElementById('openSettings').addEventListener('click', openSettings);
@@ -401,6 +514,9 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
     }catch(e){
       console.error('Erreur de stockage', e);
+    }
+    if(ghConfigured()){
+      await pushToGitHub();
     }
   }
 
