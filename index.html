@@ -38,7 +38,6 @@
   }
   .wrap{max-width:520px;margin:0 auto;padding:0 18px 100px;}
 
-  /* Marquee header */
   header{
     padding:28px 0 18px;
     text-align:center;
@@ -66,7 +65,6 @@
   }
   .sub{color:var(--muted);font-size:0.82rem;margin-top:4px;letter-spacing:0.02em;}
 
-  /* Tabs */
   .tabs{display:flex;gap:8px;margin:18px 0 12px;overflow-x:auto;padding-bottom:2px;}
   .tab{
     flex:none;
@@ -83,7 +81,6 @@
   .tab.active{border-color:var(--gold);color:var(--gold);background:rgba(232,178,62,0.08);}
   .tab.active[data-accent="serie"]{border-color:var(--teal);color:var(--teal);background:rgba(79,209,197,0.08);}
 
-  /* Add button */
   .add-btn{
     width:100%;
     padding:13px;
@@ -103,7 +100,6 @@
     outline:2px solid var(--gold); outline-offset:2px;
   }
 
-  /* Ticket card */
   .ticket{
     display:flex;
     background:var(--card);
@@ -185,12 +181,10 @@
   }
   .icon-btn.danger:active{color:var(--danger);}
 
-  /* Empty state */
   .empty{text-align:center;padding:50px 20px;color:var(--muted);}
   .empty .reel{font-size:2.2rem;margin-bottom:10px;opacity:0.6;}
   .empty p{font-size:0.88rem;line-height:1.5;max-width:280px;margin:0 auto;}
 
-  /* Modal */
   .overlay{
     position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);
     display:flex;align-items:flex-end;justify-content:center;z-index:50;
@@ -238,10 +232,10 @@
   .mini-link.danger{color:var(--danger);text-decoration:none;font-size:0.9rem;font-weight:700;line-height:1;}
   .ep-grid{display:flex;flex-wrap:wrap;gap:6px;}
   .ep-check{
-    width:30px;height:30px;border-radius:7px;border:1px solid var(--border);background:var(--bg-alt);
-    color:var(--muted);font-size:0.72rem;font-weight:600;cursor:pointer;font-family:inherit;
+    width:30px;height:30px;border-radius:7px;border:1.5px solid var(--danger);background:rgba(226,96,79,0.12);
+    color:var(--danger);font-size:0.72rem;font-weight:700;cursor:pointer;font-family:inherit;
   }
-  .ep-check.on{background:var(--teal);border-color:var(--teal);color:#062522;}
+  .ep-check.on{background:#3ECB78;border-color:#3ECB78;color:#0B2B16;}
   .add-season-row{display:flex;gap:8px;margin-top:4px;}
   .add-season-row input{
     flex:1;min-width:0;padding:9px 10px;border-radius:8px;border:1px solid var(--border);
@@ -385,4 +379,499 @@
           <div class="tmdb-note">
             Gratuite : crée un compte sur themoviedb.org, puis va dans Paramètres → API pour générer une clé "API Key (v3 auth)". Elle est stockée uniquement sur cet appareil.
           </div>
-          
+          <div class="sheet-actions">
+            <button class="btn ghost" id="s_cancel">Annuler</button>
+            <button class="btn primary" id="s_save">Enregistrer</button>
+          </div>
+        </div>
+      </div>
+    `;
+    modalRoot.querySelector('#s_cancel').addEventListener('click', closeModal);
+    modalRoot.querySelector('#overlay').addEventListener('click', (ev)=>{ if(ev.target.id==='overlay') closeModal(); });
+    modalRoot.querySelector('#s_save').addEventListener('click', ()=>{
+      tmdbApiKey = modalRoot.querySelector('#s_key').value.trim();
+      try{ localStorage.setItem(API_KEY_STORAGE, tmdbApiKey); }catch(e){ console.error(e); }
+      closeModal();
+    });
+  }
+  document.getElementById('openSettings').addEventListener('click', openSettings);
+
+  async function saveEntries(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    }catch(e){
+      console.error('Erreur de stockage', e);
+    }
+  }
+
+  function uid(){ return 'e_'+Date.now()+'_'+Math.random().toString(36).slice(2,8); }
+
+  function statusLabel(s){
+    return s==='a_voir' ? 'À voir' : s==='en_cours' ? 'En cours' : 'Terminé';
+  }
+
+  function formatLabel(f){
+    return f==='dvd' ? '📀 DVD' : f==='bluray' ? '📀 Blu-ray' : f==='4k' ? '📀 4K UHD' : '';
+  }
+
+  function seasonsSummary(seasons){
+    if(!seasons || seasons.length===0) return '';
+    let totalEp=0, totalWatched=0, next=null;
+    [...seasons].sort((a,b)=>a.number-b.number).forEach(s=>{
+      totalEp += s.episodeCount;
+      s.watched.forEach((w,i)=>{
+        if(w) totalWatched++;
+        else if(!next) next = {season:s.number, ep:i+1};
+      });
+    });
+    if(totalEp===0) return '';
+    let text = `${totalWatched}/${totalEp} épisodes vus`;
+    if(next) text += ` · suite : S${next.season}E${next.ep}`;
+    else text += ` · terminée`;
+    return text;
+  }
+
+  function stars(n){
+    let out='';
+    for(let i=1;i<=5;i++) out += i<=n ? '★' : '☆';
+    return out;
+  }
+
+  function fmtDate(d){
+    if(!d) return '';
+    const parts = d.split('-');
+    if(parts.length!==3) return d;
+    const months=['jan.','fév.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+    return `${parseInt(parts[2],10)} ${months[parseInt(parts[1],10)-1]} ${parts[0]}`;
+  }
+
+  function render(){
+    listEl.innerHTML = '';
+    const filtered = entries.filter(e=>{
+      if(filterType!=='all' && e.type!==filterType) return false;
+      if(filterStatus!=='all' && e.status!==filterStatus) return false;
+      return true;
+    }).sort((a,b)=> (b.createdAt||0) - (a.createdAt||0));
+
+    if(filtered.length===0){
+      listEl.innerHTML = `<div class="empty"><div class="reel">🎬</div><p>${entries.length===0 ? "Aucun titre pour l'instant. Ajoute le premier film ou série que tu as vu." : "Aucun titre ne correspond à ce filtre."}</p></div>`;
+      return;
+    }
+
+    filtered.forEach(e=>{
+      const card = document.createElement('div');
+      card.className = 'ticket' + (e.type==='serie' ? ' serie' : '');
+      card.innerHTML = `
+        <div class="stripe"></div>
+        <div class="ticket-body">
+          <div class="ticket-top">
+            ${e.posterPath ? `<img class="poster-thumb" src="${TMDB_IMG}${e.posterPath}" alt="" loading="lazy" />` : ''}
+            <div style="min-width:0;">
+              <div class="ticket-title">${escapeHtml(e.title)}</div>
+              <div class="ticket-meta">
+                <span class="type-badge">${e.type==='serie'?'Série':'Film'}</span>
+                ${e.date ? '<span>· '+fmtDate(e.date)+'</span>' : ''}
+              </div>
+              <div class="extra-badges">
+                ${e.watchedInCinema ? '<span class="xbadge cinema">🎬 Vu au cinéma</span>' : ''}
+                ${e.format ? '<span class="xbadge format">'+formatLabel(e.format)+'</span>' : ''}
+              </div>
+            </div>
+          </div>
+          ${e.crew ? `<div class="crew-line"><b>${e.type==='serie'?'Créée par':'Réalisé par'}</b> ${escapeHtml(e.crew)}</div>` : ''}
+          ${e.cast ? `<div class="crew-line"><b>Avec</b> ${escapeHtml(e.cast)}</div>` : ''}
+          ${e.type==='serie' && e.seasons && e.seasons.length ? `<div class="crew-line"><b>Progression</b> ${seasonsSummary(e.seasons)}</div>` : ''}
+          ${e.overview ? `<div class="overview">${escapeHtml(e.overview)}</div>` : ''}
+          <div class="ticket-actions">
+            <button class="icon-btn" data-action="edit" data-id="${e.id}">Modifier</button>
+            <button class="icon-btn danger" data-action="delete" data-id="${e.id}">Supprimer</button>
+          </div>
+        </div>
+        <div class="perf"></div>
+        <div class="ticket-right">
+          <div class="stars">${stars(e.rating)}</div>
+          <div class="status-pill ${e.status}">${statusLabel(e.status)}</div>
+        </div>
+      `;
+      listEl.appendChild(card);
+    });
+  }
+
+  function escapeHtml(s){
+    return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  listEl.addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('button[data-action]');
+    if(!btn) return;
+    const id = btn.dataset.id;
+    if(btn.dataset.action==='delete'){
+      entries = entries.filter(e=>e.id!==id);
+      saveEntries(); render();
+    } else if(btn.dataset.action==='edit'){
+      openModal(entries.find(e=>e.id===id));
+    }
+  });
+
+  document.getElementById('typeTabs').addEventListener('click', (ev)=>{
+    const t = ev.target.closest('.tab'); if(!t) return;
+    filterType = t.dataset.type;
+    [...document.getElementById('typeTabs').children].forEach(c=>c.classList.remove('active'));
+    t.classList.add('active');
+    render();
+  });
+  document.getElementById('statusTabs').addEventListener('click', (ev)=>{
+    const t = ev.target.closest('.tab'); if(!t) return;
+    filterStatus = t.dataset.status;
+    [...document.getElementById('statusTabs').children].forEach(c=>c.classList.remove('active'));
+    t.classList.add('active');
+    render();
+  });
+
+  document.getElementById('openAdd').addEventListener('click', ()=> openModal(null));
+
+  document.getElementById('resetBtn').addEventListener('click', async ()=>{
+    if(entries.length===0) return;
+    if(confirm('Supprimer définitivement toute ta collection ?')){
+      entries = [];
+      await saveEntries();
+      render();
+    }
+  });
+
+  function openModal(entry){
+    editingId = entry ? entry.id : null;
+    const draft = entry ? {...entry} : {type:'film', status:'a_voir', rating:0, title:'', date:'', watchedInCinema:false, format:'', posterPath:'', overview:'', crew:'', cast:'', tmdbId:null};
+
+    modalRoot.innerHTML = `
+      <div class="overlay" id="overlay">
+        <div class="sheet">
+          <h2>${entry ? 'Modifier le titre' : 'Nouveau titre'}</h2>
+          <div class="field search-wrap">
+            <label>Rechercher sur TMDB</label>
+            <input type="text" id="f_search" autocomplete="off" placeholder="Tape un titre…" />
+            <div class="search-results" id="f_results" style="display:none;"></div>
+          </div>
+          <div id="f_preview"></div>
+          <div class="field">
+            <label>Titre</label>
+            <input type="text" id="f_title" value="${escapeHtml(draft.title)}" placeholder="Ex : Dune, Severance…" />
+          </div>
+          <div class="field">
+            <label>Type</label>
+            <div class="seg" id="f_type">
+              <button type="button" data-t="film" class="${draft.type==='film'?'sel':''}">Film</button>
+              <button type="button" data-t="serie" class="${draft.type==='serie'?'sel':''}">Série</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Statut</label>
+            <select id="f_status">
+              <option value="a_voir" ${draft.status==='a_voir'?'selected':''}>À voir</option>
+              <option value="en_cours" ${draft.status==='en_cours'?'selected':''}>En cours</option>
+              <option value="termine" ${draft.status==='termine'?'selected':''}>Terminé</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Note</label>
+            <div class="rate-row" id="f_rate">
+              ${[1,2,3,4,5].map(n=>`<button type="button" data-n="${n}" class="${n<=draft.rating?'filled':''}">★</button>`).join('')}
+            </div>
+          </div>
+          <div class="field">
+            <label>Date (optionnel)</label>
+            <input type="date" id="f_date" value="${draft.date||''}" />
+          </div>
+          <div class="field serie-only ${draft.type==='serie'?'show':''}" id="f_seasons_field">
+            <label>Suivi des saisons</label>
+            <div class="tmdb-note" style="margin:0 0 10px;">🟩 Épisode vu &nbsp;·&nbsp; 🟥 Pas encore vu — tape sur un numéro pour basculer.</div>
+            <div id="f_seasons_list"></div>
+            <div class="add-season-row">
+              <input type="number" id="f_new_season_num" placeholder="N° saison" min="1" />
+              <input type="number" id="f_new_season_eps" placeholder="Nb épisodes" min="1" />
+              <button type="button" id="f_add_season">+ Ajouter</button>
+            </div>
+          </div>
+          <div class="field film-only ${draft.type==='film'?'show':''}" id="f_cinema_field">
+            <label>Visionnage</label>
+            <div class="switch-row">
+              <span>Vu au cinéma</span>
+              <button type="button" class="switch ${draft.watchedInCinema?'on':''}" id="f_cinema"></button>
+            </div>
+          </div>
+          <div class="field film-only ${draft.type==='film'?'show':''}" id="f_format_field">
+            <label>Je le possède en physique</label>
+            <select id="f_format">
+              <option value="" ${!draft.format?'selected':''}>Non</option>
+              <option value="dvd" ${draft.format==='dvd'?'selected':''}>DVD</option>
+              <option value="bluray" ${draft.format==='bluray'?'selected':''}>Blu-ray</option>
+              <option value="4k" ${draft.format==='4k'?'selected':''}>4K UHD</option>
+            </select>
+          </div>
+          <div class="sheet-actions">
+            <button class="btn ghost" id="f_cancel">Annuler</button>
+            <button class="btn primary" id="f_save">${entry ? 'Enregistrer' : 'Ajouter'}</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    let type = draft.type, rating = draft.rating, watchedInCinema = !!draft.watchedInCinema;
+    let seasonsState = (draft.seasons || []).map(s=>({number:s.number, episodeCount:s.episodeCount, watched:[...s.watched]}));
+    let selected = {
+      posterPath: draft.posterPath||'', overview: draft.overview||'',
+      crew: draft.crew||'', cast: draft.cast||'', tmdbId: draft.tmdbId||null
+    };
+
+    function renderSeasons(){
+      const box = modalRoot.querySelector('#f_seasons_list');
+      if(!box) return;
+      if(seasonsState.length===0){
+        box.innerHTML = `<div class="seasons-empty">Aucune saison ajoutée. Cherche la série via TMDB pour les récupérer automatiquement, ou ajoute-en une manuellement ci-dessous.</div>`;
+        return;
+      }
+      const sorted = [...seasonsState].sort((a,b)=>a.number-b.number);
+      box.innerHTML = sorted.map(s=>{
+        const watchedCount = s.watched.filter(Boolean).length;
+        const allDone = watchedCount===s.episodeCount && s.episodeCount>0;
+        return `
+          <div class="season-block">
+            <div class="season-head">
+              <span>Saison ${s.number} — ${watchedCount}/${s.episodeCount} vus</span>
+              <div class="season-head-actions">
+                <button type="button" class="mini-link" data-action="toggle-all" data-season="${s.number}">${allDone?'Décocher tout':'Tout cocher'}</button>
+                <button type="button" class="mini-link danger" data-action="remove-season" data-season="${s.number}">✕</button>
+              </div>
+            </div>
+            <div class="ep-grid">
+              ${s.watched.map((w,i)=>`<button type="button" class="ep-check ${w?'on':''}" data-action="toggle-ep" data-season="${s.number}" data-ep="${i}">${i+1}</button>`).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    renderSeasons();
+
+    modalRoot.querySelector('#f_seasons_list').addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('button[data-action]'); if(!btn) return;
+      const seasonNum = parseInt(btn.dataset.season,10);
+      const season = seasonsState.find(s=>s.number===seasonNum);
+      if(!season) return;
+      if(btn.dataset.action==='toggle-ep'){
+        const epIdx = parseInt(btn.dataset.ep,10);
+        season.watched[epIdx] = !season.watched[epIdx];
+      } else if(btn.dataset.action==='toggle-all'){
+        const allDone = season.watched.every(Boolean) && season.episodeCount>0;
+        season.watched = season.watched.map(()=>!allDone);
+      } else if(btn.dataset.action==='remove-season'){
+        seasonsState = seasonsState.filter(s=>s.number!==seasonNum);
+      }
+      renderSeasons();
+    });
+
+    modalRoot.querySelector('#f_add_season').addEventListener('click', ()=>{
+      const numInput = modalRoot.querySelector('#f_new_season_num');
+      const epsInput = modalRoot.querySelector('#f_new_season_eps');
+      const num = parseInt(numInput.value,10);
+      const eps = parseInt(epsInput.value,10);
+      if(!num || num<1 || !eps || eps<1){
+        numInput.focus();
+        return;
+      }
+      if(seasonsState.some(s=>s.number===num)){
+        seasonsState = seasonsState.map(s=> s.number===num ? {...s, episodeCount:eps, watched:Array.from({length:eps},(_,i)=>s.watched[i]||false)} : s);
+      } else {
+        seasonsState.push({number:num, episodeCount:eps, watched:Array(eps).fill(false)});
+      }
+      numInput.value=''; epsInput.value='';
+      renderSeasons();
+    });
+
+    function renderPreview(){
+      const box = modalRoot.querySelector('#f_preview');
+      if(!selected.tmdbId){ box.innerHTML = ''; return; }
+      box.innerHTML = `
+        <div class="selected-preview">
+          ${selected.posterPath ? `<img src="${TMDB_IMG}${selected.posterPath}" alt="" />` : ''}
+          <div class="sp-text">
+            ${selected.crew ? `<div><b>${type==='serie'?'Créée par':'Réalisé par'}</b> ${escapeHtml(selected.crew)}</div>` : ''}
+            ${selected.cast ? `<div><b>Avec</b> ${escapeHtml(selected.cast)}</div>` : ''}
+            <button type="button" class="clear-sel" id="f_clear_sel">Retirer les infos TMDB</button>
+          </div>
+        </div>
+      `;
+      const clr = box.querySelector('#f_clear_sel');
+      if(clr) clr.addEventListener('click', ()=>{
+        selected = {posterPath:'', overview:'', crew:'', cast:'', tmdbId:null};
+        renderPreview();
+      });
+    }
+    renderPreview();
+
+    let searchTimer = null;
+    const searchInput = modalRoot.querySelector('#f_search');
+    const resultsBox = modalRoot.querySelector('#f_results');
+
+    async function doSearch(q){
+      if(!tmdbApiKey){
+        resultsBox.style.display='block';
+        resultsBox.innerHTML = `<div class="sr-empty">Ajoute ta clé API TMDB dans les réglages (⚙ en haut) pour activer la recherche.</div>`;
+        return;
+      }
+      if(!q || q.length<2){ resultsBox.style.display='none'; resultsBox.innerHTML=''; return; }
+      const endpoint = type==='serie' ? 'tv' : 'movie';
+      try{
+        const url = `https://api.themoviedb.org/3/search/${endpoint}?api_key=${encodeURIComponent(tmdbApiKey)}&language=fr-FR&query=${encodeURIComponent(q)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const results = (data.results||[]).slice(0,8);
+        resultsBox.style.display='block';
+        if(results.length===0){
+          resultsBox.innerHTML = `<div class="sr-empty">Aucun résultat.</div>`;
+          return;
+        }
+        resultsBox.innerHTML = results.map(r=>{
+          const title = r.title || r.name || '';
+          const dt = r.release_date || r.first_air_date || '';
+          const year = dt ? dt.slice(0,4) : '';
+          const poster = r.poster_path ? `${TMDB_IMG}${r.poster_path}` : '';
+          return `<div class="sr-item" data-id="${r.id}">
+            ${poster ? `<img src="${poster}" alt="" />` : '<div class="poster-thumb" style="width:32px;height:48px;"></div>'}
+            <div><div class="sr-t">${escapeHtml(title)}</div><div class="sr-y">${year}</div></div>
+          </div>`;
+        }).join('');
+      }catch(e){
+        resultsBox.style.display='block';
+        resultsBox.innerHTML = `<div class="sr-empty">Erreur de connexion à TMDB.</div>`;
+      }
+    }
+
+    searchInput.addEventListener('input', (ev)=>{
+      clearTimeout(searchTimer);
+      const q = ev.target.value.trim();
+      searchTimer = setTimeout(()=>doSearch(q), 350);
+    });
+
+    resultsBox.addEventListener('click', async (ev)=>{
+      const item = ev.target.closest('.sr-item'); if(!item) return;
+      const id = item.dataset.id;
+      const endpoint = type==='serie' ? 'tv' : 'movie';
+      resultsBox.innerHTML = `<div class="sr-empty">Chargement…</div>`;
+      try{
+        const [detailsRes, creditsRes] = await Promise.all([
+          fetch(`https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${encodeURIComponent(tmdbApiKey)}&language=fr-FR`),
+          fetch(`https://api.themoviedb.org/3/${endpoint}/${id}/credits?api_key=${encodeURIComponent(tmdbApiKey)}&language=fr-FR`)
+        ]);
+        const details = await detailsRes.json();
+        const credits = await creditsRes.json();
+
+        const title = details.title || details.name || '';
+        const dt = details.release_date || details.first_air_date || '';
+        let crewNames = '';
+        if(endpoint==='movie'){
+          crewNames = (credits.crew||[]).filter(c=>c.job==='Director').map(c=>c.name).join(', ');
+        } else {
+          crewNames = (details.created_by||[]).map(c=>c.name).join(', ');
+        }
+        const castNames = (credits.cast||[]).slice(0,4).map(c=>c.name).join(', ');
+
+        selected = {
+          posterPath: details.poster_path || '',
+          overview: details.overview || '',
+          crew: crewNames,
+          cast: castNames,
+          tmdbId: details.id
+        };
+
+        if(endpoint==='tv' && Array.isArray(details.seasons)){
+          const prev = seasonsState;
+          seasonsState = details.seasons.filter(s=>s.season_number>0).map(s=>{
+            const old = prev.find(p=>p.number===s.season_number);
+            const epCount = s.episode_count || (old?old.episodeCount:0);
+            let watched;
+            if(old && old.episodeCount===epCount){
+              watched = [...old.watched];
+            } else if(old){
+              watched = Array.from({length:epCount}, (_,i)=> old.watched[i] || false);
+            } else {
+              watched = Array(epCount).fill(false);
+            }
+            return {number:s.season_number, episodeCount:epCount, watched};
+          });
+          renderSeasons();
+        }
+
+        modalRoot.querySelector('#f_title').value = title;
+        if(dt && !modalRoot.querySelector('#f_date').value){
+          modalRoot.querySelector('#f_date').value = dt;
+        }
+        searchInput.value = '';
+        resultsBox.style.display='none';
+        resultsBox.innerHTML='';
+        renderPreview();
+      }catch(e){
+        resultsBox.innerHTML = `<div class="sr-empty">Erreur lors du chargement des détails.</div>`;
+      }
+    });
+
+    document.addEventListener('click', function outsideClick(ev){
+      if(!modalRoot.contains(ev.target)) return;
+      if(!ev.target.closest('.search-wrap')){
+        resultsBox.style.display='none';
+      }
+    });
+
+    modalRoot.querySelector('#f_type').addEventListener('click', (ev)=>{
+      const b = ev.target.closest('button'); if(!b) return;
+      type = b.dataset.t;
+      [...modalRoot.querySelectorAll('#f_type button')].forEach(x=>x.classList.remove('sel'));
+      b.classList.add('sel');
+      modalRoot.querySelector('#f_cinema_field').classList.toggle('show', type==='film');
+      modalRoot.querySelector('#f_format_field').classList.toggle('show', type==='film');
+      modalRoot.querySelector('#f_seasons_field').classList.toggle('show', type==='serie');
+    });
+    modalRoot.querySelector('#f_cinema').addEventListener('click', (ev)=>{
+      watchedInCinema = !watchedInCinema;
+      ev.target.classList.toggle('on', watchedInCinema);
+    });
+    modalRoot.querySelector('#f_rate').addEventListener('click', (ev)=>{
+      const b = ev.target.closest('button'); if(!b) return;
+      rating = parseInt(b.dataset.n,10);
+      [...modalRoot.querySelectorAll('#f_rate button')].forEach(x=>{
+        x.classList.toggle('filled', parseInt(x.dataset.n,10) <= rating);
+      });
+    });
+    modalRoot.querySelector('#f_cancel').addEventListener('click', closeModal);
+    modalRoot.querySelector('#overlay').addEventListener('click', (ev)=>{
+      if(ev.target.id==='overlay') closeModal();
+    });
+    modalRoot.querySelector('#f_save').addEventListener('click', async ()=>{
+      const title = modalRoot.querySelector('#f_title').value.trim();
+      if(!title){ modalRoot.querySelector('#f_title').focus(); return; }
+      const status = modalRoot.querySelector('#f_status').value;
+      const date = modalRoot.querySelector('#f_date').value;
+      const format = type==='film' ? modalRoot.querySelector('#f_format').value : '';
+      const cinema = type==='film' ? watchedInCinema : false;
+      const seasons = type==='serie' ? seasonsState : [];
+
+      if(editingId){
+        entries = entries.map(e => e.id===editingId ? {...e, title, type, status, rating, date, format, watchedInCinema:cinema, seasons, ...selected} : e);
+      } else {
+        entries.push({id:uid(), title, type, status, rating, date, format, watchedInCinema:cinema, seasons, ...selected, createdAt:Date.now()});
+      }
+      await saveEntries();
+      closeModal();
+      render();
+    });
+  }
+
+  function closeModal(){
+    modalRoot.innerHTML = '';
+    editingId = null;
+  }
+
+  loadEntries();
+})();
+</script>
+</body>
+</html>
